@@ -22,7 +22,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const [settings, setSettings] = useState<Settings>({
-    theme: 'light',
+    theme: 'dark',
     fontSize: 'medium',
     subtitleSize: 'medium',
     showRomaji: true,
