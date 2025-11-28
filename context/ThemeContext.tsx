@@ -1,32 +1,39 @@
 'use client'
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+// context/ThemeContext.tsx - 新增這些設定
 
 type Theme = 'light' | 'dark'
 type FontSize = 'small' | 'medium' | 'large'
 
-interface Settings {
+export interface THEME_Settings {
   theme: Theme
   fontSize: FontSize
   subtitleSize: FontSize
   showRomaji: boolean
   videoHeight: 'small' | 'medium' | 'large'
+  showSubtitle: boolean      // ✅ 新增
+  showTranslation: boolean   // ✅ 新增
+  titleColor: 'auto' | 'white' | 'black' | 'blue' // ✅ 新增
 }
 
 interface ThemeContextType {
-  settings: Settings
-  updateSettings: (newSettings: Partial<Settings>) => void
+  settings: THEME_Settings
+  updateSettings: (newSettings: Partial<THEME_Settings>) => void
   toggleTheme: () => void
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [settings, setSettings] = useState<Settings>({
+  const [settings, setSettings] = useState<THEME_Settings>({
     theme: 'dark',
     fontSize: 'medium',
     subtitleSize: 'medium',
     showRomaji: true,
-    videoHeight: 'medium'
+    videoHeight: 'medium',
+  showSubtitle: true,
+  showTranslation: true,
+  titleColor: 'auto'
   })
 
   // 載入本地儲存設定
@@ -49,7 +56,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [settings])
 
-  const updateSettings = (newSettings: Partial<Settings>) => {
+  const updateSettings = (newSettings: Partial<THEME_Settings>) => {
     setSettings(prev => ({ ...prev, ...newSettings }))
   }
 
