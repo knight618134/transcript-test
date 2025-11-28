@@ -137,7 +137,7 @@ export function SettingsPanel({
                 }`}
               >
                 <div className={`${size === 'small' ? 'text-xs' : size === 'medium' ? 'text-sm' : 'text-base'} font-bold`}>
-                  [translate:字幕測試]
+                  字幕測試]
                 </div>
                 <span className="text-xs opacity-75 capitalize">{size}</span>
               </button>

@@ -1,24 +1,5 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react"; // ✅ 加入 useCallback
-import YouTube from "react-youtube";
-import {
-  Upload,
-  Play,
-  FileText,
-  Clock,
-  ChevronLeft,
-  Edit3,
-  Trash2,
-  Save,
-  X,
-  Menu,
-  Settings,
-  Sun,
-  Moon,
-  Type,
-  Maximize2,
-  Minimize2,
-} from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import * as XLSX from "xlsx";
 import { useTheme } from "@/context/ThemeContext";
@@ -31,6 +12,8 @@ import {
 } from "@/components/PlaybackSection";
 import { FileList } from "@/components/FileList";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { FooterTools } from "@/components/FooterTools";
+import { DictionaryPopover } from "@/components/DictionaryPopover";
 
 type ExcelEntry = {
   id: number;
@@ -58,6 +41,47 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [activeWord, setActiveWord] = useState("");
+  // 🔥 字典相關狀態
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const [popoverWord, setPopoverWord] = useState("");
+  const [dictionaryResult, setDictionaryResult] = useState<any>(null);
+  const [isLoadingDictionary, setIsLoadingDictionary] = useState(false);
+  // 🔥 真實字典 API 查詢
+// Home.tsx 中的 handleDictionarySearch 函數
+// Home.tsx - 確認這段呼叫 `/api/dictionary`
+const handleDictionarySearch = async (word: string) => {
+  console.log("🔍 Searching for:", word); // 除錯
+  
+  setActiveWord(word);
+  setPopoverWord(word);
+  setPopoverOpen(true);
+  setIsLoadingDictionary(true);
+  setDictionaryResult(null);
+
+  try {
+    const response = await fetch(`/api/dictionary?keyword=${encodeURIComponent(word)}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log("📚 Search result:", result); // 除錯
+    
+    setDictionaryResult(result);
+  } catch (error) {
+    console.error("❌ Search failed:", error);
+    setDictionaryResult({
+      keyword: word,
+      error: "查詢失敗，請稍後再試",
+      definitions: [],
+      sources: [],
+    });
+  } finally {
+    setIsLoadingDictionary(false);
+  }
+};
 
   // 只保留這一個，給 PlaybackSection 用
   const handleSeekTo = useCallback((time: number) => {
@@ -300,27 +324,41 @@ export default function Home() {
       setLoading(false);
     }
   };
-
-   return (
+  return (
     <main
-      className={`min-h-screen transition-all duration-300 px-4 pt-1 sm:px-6 lg:px-12 ${
+    className={`min-h-dvh flex flex-col transition-all duration-300 
+      px-4 pt-1 
+      sm:px-6 
+      lg:px-12 
+      xl:px-16 
+      2xl:px-24 
+      ${
         settings.theme === "dark"
           ? "bg-gradient-to-br from-slate-900 via-slate-800 to-gray-900 text-slate-100"
           : "bg-gradient-to-br from-slate-50 to-blue-50 text-slate-900"
       }`}
-    >
-      <div className="max-w-6xl mx-auto relative">
-        {/* 單一 HeaderBar - 動態顯示內容和返回按鈕 */}
+  >
+    <div className={`
+      max-w-6xl mx-auto w-full flex flex-col flex-1 relative
+      lg:max-w-6xl
+      xl:max-w-7xl
+      2xl:max-w-screen-2xl
+    `}>
+        {/* HeaderBar */}
         <HeaderBar
           onBack={() => setCurrentTab("manage")}
-          title={currentTab === "play" && activeEntry ? activeEntry.display_name : "學習字幕筆記"}
+          title={
+            currentTab === "play" && activeEntry
+              ? activeEntry.display_name
+              : "學習字幕筆記"
+          }
           onToggleSettings={() => setShowSettings(!showSettings)}
           isDarkTheme={settings.theme === "dark"}
           titleColor={settings.titleColor}
-          showBackButton={currentTab === "play"} // 只有播放頁顯示返回按鈕
+          showBackButton={currentTab === "play"}
         />
 
-        {/* 設定面板與背景遮罩 */}
+        {/* 設定面板 */}
         {showSettings && (
           <SettingsPanel
             settings={settings}
@@ -331,72 +369,105 @@ export default function Home() {
           />
         )}
 
-        {/* 播放頁 */}
-        {currentTab === "play" && activeEntry && (
-          <PlaybackSection
-            videoId={activeEntry.youtube_url}
-            transcript={transcript}
-            subtitleSize={settings.subtitleSize}
-            isDarkTheme={settings.theme === "dark"}
-            onSeekTo={handleSeekTo}
-            showSubtitle={settings.showSubtitle}
-            showRomaji={settings.showRomaji}
-            showTranslation={settings.showTranslation}
-            videoHeight={settings.videoHeight}
-          />
-        )}
+        {/* 主要內容區 */}
+        <div className="flex-1 overflow-y-auto">
+          {currentTab === "play" && activeEntry && (
+            <PlaybackSection
+              videoId={activeEntry.youtube_url}
+              transcript={transcript}
+              subtitleSize={settings.subtitleSize}
+              isDarkTheme={settings.theme === "dark"}
+              onSeekTo={handleSeekTo}
+              showSubtitle={settings.showSubtitle}
+              showRomaji={settings.showRomaji}
+              showTranslation={settings.showTranslation}
+              videoHeight={settings.videoHeight}
+              onWordSelect={setActiveWord}
+            />
+          )}
 
-        {/* 管理頁 */}
-        {currentTab === "manage" && (
-          <div className="space-y-8">
-            <div
-              className={`bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-3xl p-6 sm:p-10 shadow-2xl border ${
-                settings.theme === "dark"
-                  ? "border-slate-700/50"
-                  : "border-white/50"
-              }`}
-            >
-              <UploadSection
-                uploadDisplayName={uploadDisplayName}
-                uploadYoutubeUrl={uploadYoutubeUrl}
-                uploadExcel={uploadExcel}
-                onDisplayNameChange={setUploadDisplayName}
-                onYoutubeUrlChange={setUploadYoutubeUrl}
-                onExcelChange={setUploadExcel}
-                onUpload={handleUpload}
+          {currentTab === "manage" && (
+            <div className="space-y-8">
+              {/* UploadSection 和 FileList 不變 */}
+              <div
+                className={`bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-3xl p-6 sm:p-10 shadow-2xl border ${
+                  settings.theme === "dark"
+                    ? "border-slate-700/50"
+                    : "border-white/50"
+                }`}
+              >
+                <UploadSection
+                  uploadDisplayName={uploadDisplayName}
+                  uploadYoutubeUrl={uploadYoutubeUrl}
+                  uploadExcel={uploadExcel}
+                  onDisplayNameChange={setUploadDisplayName}
+                  onYoutubeUrlChange={setUploadYoutubeUrl}
+                  onExcelChange={setUploadExcel}
+                  onUpload={handleUpload}
+                  isDarkTheme={settings.theme === "dark"}
+                  onFetchSubtitles={(videoId, displayName, transcript) => {
+                    // 🔥 直接跳轉播放三軌字幕
+                    setActiveEntry({
+                      id: Date.now(),
+                      filename: `youtube_${videoId}`,
+                      display_name: displayName,
+                      youtube_url: videoId,
+                      file_url: "",
+                      enabled: true,
+                      created_at: new Date().toISOString(),
+                    })
+                    setTranscript(transcript)
+                    setCurrentTab("play")
+                  }}
+                />
+              </div>
+              <FileList
+                entries={entries}
                 isDarkTheme={settings.theme === "dark"}
+                onPlay={handleEntryClick}
+                onEdit={startEdit}
+                onDelete={deleteEntry}
+                onSave={saveEdit}
+                onCancel={cancelEdit}
+                onNameChange={(entry, name) =>
+                  updateTempValues(entry, name, entry.temp_youtube_url || "")
+                }
+                onUrlChange={(entry, url) =>
+                  updateTempValues(entry, entry.temp_display_name || "", url)
+                }
               />
             </div>
+          )}
+        </div>
 
-            <FileList
-              entries={entries}
-              isDarkTheme={settings.theme === "dark"}
-              onPlay={handleEntryClick}
-              onEdit={startEdit}
-              onDelete={deleteEntry}
-              onSave={saveEdit}
-              onCancel={cancelEdit}
-              onNameChange={(entry, name) =>
-                updateTempValues(entry, name, entry.temp_youtube_url || "")
-              }
-              onUrlChange={(entry, url) =>
-                updateTempValues(entry, entry.temp_display_name || "", url)
-              }
-            />
-          </div>
-        )}
+        {/* FooterTools */}
+        <FooterTools
+          activeWord={activeWord}
+          onDictionarySearch={handleDictionarySearch}
+          isDarkTheme={settings.theme === "dark"}
+        />
 
         {/* 背景遮罩 */}
         {(showMenu || showSettings) && (
           <div
             className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm lg:hidden"
             onClick={() => {
-              setShowMenu(false)
-              setShowSettings(false)
+              setShowMenu(false);
+              setShowSettings(false);
             }}
           />
         )}
       </div>
+
+      {/* 🔥 字典 Popover（全螢幕中心顯示） */}
+      <DictionaryPopover
+        word={popoverWord}
+        result={dictionaryResult}
+        isLoading={isLoadingDictionary}
+        isOpen={popoverOpen}
+        onClose={() => setPopoverOpen(false)}
+        isDarkTheme={settings.theme === "dark"}
+      />
     </main>
-  )
+  );
 }
