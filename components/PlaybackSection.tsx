@@ -10,6 +10,11 @@ export type TranscriptLine = {
   romaji: string;
   start: number;
   duration: number;
+  original_japanese?: string;
+  has_kanji?: boolean;
+  has_hiragana?: boolean;
+  has_translation?: boolean;
+  language?: "zh" | "en";
 };
 
 type PlaybackSectionProps = {
@@ -36,11 +41,7 @@ const getSubtitleSizeClass = (
 };
 
 const getVideoHeightClass = (height: "small" | "medium" | "large") => {
-  return height === "small"
-    ? "h-1/3"
-    : height === "medium"
-    ? "h-1/2"
-    : "h-2/3";
+  return height === "small" ? "h-1/3" : height === "medium" ? "h-1/2" : "h-2/3";
 };
 
 export function PlaybackSection({
@@ -62,7 +63,7 @@ export function PlaybackSection({
 
   const playerRef = useRef<any>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const timeOverlayTimeoutRef = useRef<NodeJS.Timeout>();
+  const timeOverlayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const subtitleSizeClass = getSubtitleSizeClass(subtitleSize);
 
@@ -93,8 +94,9 @@ export function PlaybackSection({
 
   const handleMouseEnter = () => {
     setShowTimeOverlay(true);
-    if (timeOverlayTimeoutRef.current)
+    if (timeOverlayTimeoutRef.current) {
       clearTimeout(timeOverlayTimeoutRef.current);
+    }
   };
 
   const handleMouseLeave = () => {
@@ -107,8 +109,9 @@ export function PlaybackSection({
 
   const handleTouchStart = () => {
     setShowTimeOverlay(true);
-    if (timeOverlayTimeoutRef.current)
+    if (timeOverlayTimeoutRef.current) {
       clearTimeout(timeOverlayTimeoutRef.current);
+    }
   };
 
   const handleDoubleClick = () => {
@@ -116,7 +119,7 @@ export function PlaybackSection({
     setShowTimeOverlay(true);
   };
 
-  // 🔥 手機旋轉重新計算高度
+  // 手機旋轉
   useEffect(() => {
     const handleResize = () => {
       if (playerRef.current?.getIframe) {
@@ -125,7 +128,6 @@ export function PlaybackSection({
         iframe.style.width = "100%";
       }
     };
-
     window.addEventListener("resize", handleResize);
     window.addEventListener("orientationchange", handleResize);
     return () => {
@@ -134,10 +136,10 @@ export function PlaybackSection({
     };
   }, []);
 
+  // 更新時間
   useEffect(() => {
     let rafId: number;
     let lastTime = 0;
-
     const updateTime = () => {
       if (playerRef.current?.getCurrentTime) {
         const now = playerRef.current.getCurrentTime();
@@ -148,38 +150,31 @@ export function PlaybackSection({
       }
       rafId = requestAnimationFrame(updateTime);
     };
-
     updateTime();
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
   }, []);
 
+  // 🔥 精準 activeLine 匹配邏輯
   useEffect(() => {
     if (currentTime === 0 || transcript.length === 0) return;
 
-    let activeLine: TranscriptLine | null =
-      transcript.find(
-        (line) =>
-          currentTime >= line.start - 0.3 &&
-          currentTime < line.start + line.duration
-      ) || null;
+    // ✅ 動態容忍度匹配
+    let activeLine: TranscriptLine | null = transcript.find((line) => {
+      const tolerance = Math.min(line.duration * 0.3, 2);
+      return currentTime >= line.start - tolerance && 
+             currentTime < line.start + line.duration;
+    }) || null;
 
+    // ✅ 找不到時用最近距離
     if (!activeLine) {
       activeLine = transcript.reduce((closest, line) => {
         const dist = Math.abs(currentTime - line.start);
-        return dist <
-          (closest ? Math.abs(currentTime - closest.start) : Infinity)
+        return dist < (closest ? Math.abs(currentTime - closest.start) : Infinity)
           ? line
           : closest;
       }, null as TranscriptLine | null);
-    }
-
-    if (!activeLine) {
-      activeLine =
-        transcript.find(
-          (line) => line.start > currentTime && line.start - currentTime < 2
-        ) || null;
     }
 
     if (activeLine && activeLine.id !== activeId) {
@@ -197,9 +192,8 @@ export function PlaybackSection({
   }, []);
 
   return (
-    // 手機直立上下排版，md 以上左右排版（保留原本行為）
     <div className="flex flex-col md:flex-row h-[80vh] md:h-[85vh] gap-4">
-      {/* 🔥 修正版影片區：aspect-video + md:aspect-auto */}
+      {/* 影片區 */}
       <div
         className={`
           relative flex-shrink-0
@@ -214,7 +208,6 @@ export function PlaybackSection({
         onTouchStart={handleTouchStart}
         onDoubleClick={handleDoubleClick}
       >
-        {/* 直接填滿容器 */}
         <YouTube
           videoId={videoId}
           ref={playerRef}
@@ -234,8 +227,6 @@ export function PlaybackSection({
           }}
           className="absolute inset-0 w-full h-full"
         />
-
-        {/* 時間顯示 */}
         <div
           className={`
             absolute top-3 right-3 px-3 py-1.5 rounded-full text-sm font-mono
@@ -268,7 +259,7 @@ export function PlaybackSection({
         </div>
       </div>
 
-      {/* 字幕區：套用 Notion 風格＋左側淡色條 */}
+      {/* 字幕區 */}
       <div
         ref={transcriptRef}
         className={`
@@ -286,18 +277,18 @@ export function PlaybackSection({
             data-id={line.id}
             onClick={() => {
               handleSeekTo(line.start);
-              onWordSelect?.(line.subtitle);
+              onWordSelect?.(
+                line.subtitle || line.original_japanese || line.romaji || ""
+              );
             }}
             className={[
               "group relative p-5 pl-4 rounded-2xl mb-3 cursor-pointer",
               "transition-all duration-200 hover:shadow-md border flex",
-              // Notion 風：active 行淡灰底＋微縮放
               activeId === line.id
                 ? "bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-500 scale-[1.01]"
                 : "bg-white/60 dark:bg-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-800 border-gray-200 dark:border-slate-600",
             ].join(" ")}
           >
-            {/* 左側淡淡色條（提示目前行） */}
             <div
               className={[
                 "w-1 rounded-full mr-4 self-stretch",
@@ -307,9 +298,7 @@ export function PlaybackSection({
                   : "bg-slate-200 dark:bg-slate-600 group-hover:bg-sky-200 dark:group-hover:bg-sky-400/70",
               ].join(" ")}
             />
-
             <div className="flex-1">
-              {/* 時間戳 ＋ romaji */}
               <div className="flex justify-between items-center mb-2 text-xs opacity-80">
                 <span className="font-mono bg-gray-100 dark:bg-slate-700 px-2 py-0.5 rounded">
                   {Math.floor(line.start / 60)
@@ -323,29 +312,28 @@ export function PlaybackSection({
                   </span>
                 )}
               </div>
-
-              {/* 日文字幕 */}
-              {showSubtitle && (
+              {showSubtitle && (line.subtitle || line.original_japanese) && (
                 <p className={`font-bold mb-2 ${subtitleSizeClass}`}>
-                  {line.subtitle}
+                  {line.original_japanese || line.subtitle || ""}
+                  {line.romaji && (
+                    <span className="ml-2 text-xs text-sky-500 opacity-80 italic">
+                      ({line.romaji})
+                    </span>
+                  )}
                 </p>
               )}
-
-              {/* 翻譯 */}
               {showTranslation && line.translation && (
                 <p className="text-sm opacity-90 leading-relaxed">
-                  💬 {line.translation}
+                  {line.translation.replace(/[\uFFFD\u0000-\u001F]/g, "")}
                 </p>
               )}
             </div>
           </div>
         ))}
-
-        {/* 空狀態 */}
         {transcript.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
             <FileText size={48} className="mb-4 opacity-50" />
-            <p className="text-lg">載入字幕中...]</p>
+            <p className="text-lg">載入字幕中...</p>
           </div>
         )}
       </div>

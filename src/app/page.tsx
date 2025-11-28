@@ -47,41 +47,111 @@ export default function Home() {
   const [popoverWord, setPopoverWord] = useState("");
   const [dictionaryResult, setDictionaryResult] = useState<any>(null);
   const [isLoadingDictionary, setIsLoadingDictionary] = useState(false);
-  // 🔥 真實字典 API 查詢
-// Home.tsx 中的 handleDictionarySearch 函數
-// Home.tsx - 確認這段呼叫 `/api/dictionary`
-const handleDictionarySearch = async (word: string) => {
-  console.log("🔍 Searching for:", word); // 除錯
-  
-  setActiveWord(word);
-  setPopoverWord(word);
-  setPopoverOpen(true);
-  setIsLoadingDictionary(true);
-  setDictionaryResult(null);
 
-  try {
-    const response = await fetch(`/api/dictionary?keyword=${encodeURIComponent(word)}`);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+  const onFetchSubtitles = useCallback(
+    async (videoId: string, displayName: string) => {
+      setLoading(true);
+
+      try {
+        const response = await fetch("/api/fetch-multilang-subtitles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoId, displayName }),
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          // 🔥 1. 建立完整條目（模仿 Excel 上傳）
+          const newEntry: ExcelEntry = {
+            id: result.entry.id || Date.now(),
+            filename: result.entry.filename,
+            display_name: result.entry.display_name,
+            youtube_url: result.entry.youtube_url,
+            file_url: result.entry.file_url || "", // Supabase 儲存後會有
+            enabled: false, // 🔥 預設不啟動，像 Excel 一樣
+            editing: false,
+            temp_display_name: result.entry.display_name,
+            temp_youtube_url: result.entry.youtube_url,
+            created_at: result.entry.created_at,
+          };
+
+          // 🔥 2. 只更新檔案列表，不切換播放
+          setEntries((prev) => {
+            // 避免重複
+            const exists = prev.find(
+              (e) =>
+                e.youtube_url === newEntry.youtube_url &&
+                e.filename === newEntry.filename
+            );
+            if (exists) return prev;
+
+            return [newEntry, ...prev];
+          });
+
+          // 🔥 3. 清空表單，準備下一個
+          setUploadDisplayName("");
+          setUploadYoutubeUrl("");
+          setUploadExcel(null);
+
+          alert(
+            `✅ 成功抓取 ${result.stats.totalLines} 行三軌字幕，已加入檔案列表！`
+          );
+        } else {
+          alert(`❌ ${result.error}`);
+        }
+      } catch (error) {
+        alert("網路錯誤，請檢查連結");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      setLoading,
+      setEntries,
+      setUploadDisplayName,
+      setUploadYoutubeUrl,
+      setUploadExcel,
+    ]
+  );
+
+  // 🔥 真實字典 API 查詢
+  // Home.tsx 中的 handleDictionarySearch 函數
+  // Home.tsx - 確認這段呼叫 `/api/dictionary`
+  const handleDictionarySearch = async (word: string) => {
+    console.log("🔍 Searching for:", word); // 除錯
+
+    setActiveWord(word);
+    setPopoverWord(word);
+    setPopoverOpen(true);
+    setIsLoadingDictionary(true);
+    setDictionaryResult(null);
+
+    try {
+      const response = await fetch(
+        `/api/dictionary?keyword=${encodeURIComponent(word)}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("📚 Search result:", result); // 除錯
+
+      setDictionaryResult(result);
+    } catch (error) {
+      console.error("❌ Search failed:", error);
+      setDictionaryResult({
+        keyword: word,
+        error: "查詢失敗，請稍後再試",
+        definitions: [],
+        sources: [],
+      });
+    } finally {
+      setIsLoadingDictionary(false);
     }
-    
-    const result = await response.json();
-    console.log("📚 Search result:", result); // 除錯
-    
-    setDictionaryResult(result);
-  } catch (error) {
-    console.error("❌ Search failed:", error);
-    setDictionaryResult({
-      keyword: word,
-      error: "查詢失敗，請稍後再試",
-      definitions: [],
-      sources: [],
-    });
-  } finally {
-    setIsLoadingDictionary(false);
-  }
-};
+  };
 
   // 只保留這一個，給 PlaybackSection 用
   const handleSeekTo = useCallback((time: number) => {
@@ -252,8 +322,37 @@ const handleDictionarySearch = async (word: string) => {
     setLoading(true);
     try {
       const videoId = parseVideoId(entry.youtube_url);
+
+      // 🔥 方法1：判斷 JSON 格式（YouTube 抓取）
+      if (
+        entry.filename.includes("youtube_") ||
+        entry.file_url?.endsWith(".json")
+      ) {
+        console.log("🔥 載入 YouTube JSON 字幕:", entry.filename);
+
+        const res = await fetch(entry.file_url);
+        if (!res.ok) throw new Error(`JSON 檔案載入失敗: ${res.status}`);
+
+        const jsonTranscript: TranscriptLine[] = await res.json();
+
+        // 驗證格式
+        if (!Array.isArray(jsonTranscript) || jsonTranscript.length === 0) {
+          throw new Error("字幕格式錯誤（非有效 JSON）");
+        }
+
+        setTranscript(jsonTranscript);
+        setActiveEntry({ ...entry, youtube_url: videoId });
+        setCurrentTab("play");
+
+        console.log(`✅ 成功載入 ${jsonTranscript.length} 行 JSON 字幕`);
+        return;
+      }
+
+      // 🔥 方法2：傳統 Excel 解析（保持原邏輯）
+      console.log("📊 載入 Excel 字幕:", entry.filename);
+
       const res = await fetch(entry.file_url);
-      if (!res.ok) throw new Error(`檔案載入失敗: ${res.status}`);
+      if (!res.ok) throw new Error(`Excel 檔案載入失敗: ${res.status}`);
 
       const arrayBuffer = await res.arrayBuffer();
       const workbook = XLSX.read(arrayBuffer, { type: "array" });
@@ -278,7 +377,7 @@ const handleDictionarySearch = async (word: string) => {
         h?.toString().toLowerCase().includes("romaji")
       );
 
-      // 🔥 使用改善的時間解析
+      // 🔥 時間解析函式
       const parseTime = (timeStr: string): number => {
         if (!timeStr) return 0;
         if (timeStr.includes(":")) {
@@ -318,7 +417,10 @@ const handleDictionarySearch = async (word: string) => {
       setTranscript(formatted);
       setActiveEntry({ ...entry, youtube_url: videoId });
       setCurrentTab("play");
+
+      console.log(`✅ 成功載入 ${formatted.length} 行 Excel 字幕`);
     } catch (err: any) {
+      console.error("載入字幕失敗:", err);
       alert(`載入失敗: ${err.message}`);
     } finally {
       setLoading(false);
@@ -326,7 +428,7 @@ const handleDictionarySearch = async (word: string) => {
   };
   return (
     <main
-    className={`min-h-dvh flex flex-col transition-all duration-300 
+      className={`min-h-dvh flex flex-col transition-all duration-300 
       px-4 pt-1 
       sm:px-6 
       lg:px-12 
@@ -337,13 +439,15 @@ const handleDictionarySearch = async (word: string) => {
           ? "bg-gradient-to-br from-slate-900 via-slate-800 to-gray-900 text-slate-100"
           : "bg-gradient-to-br from-slate-50 to-blue-50 text-slate-900"
       }`}
-  >
-    <div className={`
+    >
+      <div
+        className={`
       max-w-6xl mx-auto w-full flex flex-col flex-1 relative
       lg:max-w-6xl
       xl:max-w-7xl
       2xl:max-w-screen-2xl
-    `}>
+    `}
+      >
         {/* HeaderBar */}
         <HeaderBar
           onBack={() => setCurrentTab("manage")}
@@ -405,20 +509,7 @@ const handleDictionarySearch = async (word: string) => {
                   onExcelChange={setUploadExcel}
                   onUpload={handleUpload}
                   isDarkTheme={settings.theme === "dark"}
-                  onFetchSubtitles={(videoId, displayName, transcript) => {
-                    // 🔥 直接跳轉播放三軌字幕
-                    setActiveEntry({
-                      id: Date.now(),
-                      filename: `youtube_${videoId}`,
-                      display_name: displayName,
-                      youtube_url: videoId,
-                      file_url: "",
-                      enabled: true,
-                      created_at: new Date().toISOString(),
-                    })
-                    setTranscript(transcript)
-                    setCurrentTab("play")
-                  }}
+                  onFetchSubtitles={onFetchSubtitles} // 🔥 新增
                 />
               </div>
               <FileList
